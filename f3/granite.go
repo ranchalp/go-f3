@@ -597,7 +597,7 @@ func (q *quorumState) Receive(sender ActorID, value ECChain) {
 		fromSender.heads = append(fromSender.heads, head)
 	} else {
 		// Add sender's power to total the first time a value is received from them.
-		senderPower := q.powerTable.Entries[sender]
+		senderPower := q.powerTable.GetPower(sender)
 		q.sendersTotalPower += senderPower
 		fromSender = senderSent{[]TipSetID{head}, senderPower}
 	}
@@ -605,7 +605,7 @@ func (q *quorumState) Receive(sender ActorID, value ECChain) {
 
 	candidate := chainPower{
 		chain:           value,
-		power:           q.powerTable.Entries[sender],
+		power:           q.powerTable.GetPower(sender),
 		hasStrongQuorum: false,
 		hasWeakQuorum:   false,
 	}
