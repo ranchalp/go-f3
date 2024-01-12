@@ -1,5 +1,7 @@
 package f3
 
+import "github.com/filecoin-project/go-bitfield"
+
 // Receives EC chain values.
 type ChainReceiver interface {
 	// Receives a chain appropriate for use as initial proposals for a Granite instance.
@@ -51,11 +53,20 @@ type Signer interface {
 	Verify(sender ActorID, msg, sig []byte) bool
 }
 
+type Aggregator interface {
+	// Aggregates signatures from a participant to an existing signature.
+	// It also returns the resulting bitSet of signers
+	Aggregate(sig []byte, actorID ActorID, aggSignature []byte, signers *bitfield.BitField, actor2Index map[ActorID]int) ([]byte, *bitfield.BitField)
+	// VerifyAggregate verifies an aggregate signature.
+	VerifyAggregate(msg, aggSig []byte, signers *bitfield.BitField, actor2Index map[ActorID]int) bool
+}
+
 // Participant interface to the host system resources.
 type Host interface {
 	Network
 	Clock
 	Signer
+	Aggregator
 
 	// Logs a message at the "logic" level
 	Log(format string, args ...interface{})
