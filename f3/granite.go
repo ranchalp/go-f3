@@ -247,16 +247,16 @@ func (i *instance) receiveOne(msg *GMessage) {
 		// Receive each prefix of the proposal independently.
 		for j := range msg.Value.Suffix() {
 			prefix := msg.Value.Prefix(j + 1)
-			i.quality.Receive(msg.Sender, prefix)
+			i.quality.Receive(msg.Sender, prefix, msg.Signature)
 		}
 	case CONVERGE:
 		round.converged.Receive(msg.Value, msg.Ticket)
 	case PREPARE:
-		round.prepared.Receive(msg.Sender, msg.Value)
+		round.prepared.Receive(msg.Sender, msg.Value, msg.Signature)
 	case COMMIT:
-		round.committed.Receive(msg.Sender, msg.Value)
+		round.committed.Receive(msg.Sender, msg.Value, msg.Signature)
 	case DECIDE:
-		i.decision.Receive(msg.Sender, msg.Value)
+		i.decision.Receive(msg.Sender, msg.Value, msg.Signature)
 	default:
 		i.log("unexpected message %v", msg)
 	}
@@ -559,9 +559,9 @@ type quorumState struct {
 	powerTable PowerTable
 }
 
-// The set of chain heads from one sender, and that sender's power.
+// The set of chain heads from one sender and associated signature, and that sender's power.
 type senderSent struct {
-	heads []TipSetID
+	heads map[TipSetID][]byte
 	power uint
 }
 
@@ -584,28 +584,31 @@ func newQuorumState(powerTable PowerTable) *quorumState {
 }
 
 // Receives a new chain from a sender.
-func (q *quorumState) Receive(sender ActorID, value ECChain) {
+func (q *quorumState) Receive(sender ActorID, value ECChain, signature []byte) {
 	head := value.HeadCIDOrZero()
 	fromSender, ok := q.received[sender]
 	if ok {
 		// Don't double-count the same chain head for a single participant.
-		for _, old := range fromSender.heads {
-			if head == old {
-				return
-			}
+		if _, ok := fromSender.heads[head]; ok {
+			return
 		}
-		fromSender.heads = append(fromSender.heads, head)
+		fromSender.heads[head] = signature
 	} else {
 		// Add sender's power to total the first time a value is received from them.
-		senderPower := q.powerTable.GetPower(sender)
+		senderPower := q.powerTable.Entries[sender].Power
 		q.sendersTotalPower += senderPower
-		fromSender = senderSent{[]TipSetID{head}, senderPower}
+		fromSender = senderSent{
+			heads: map[TipSetID][]byte{
+				head: signature,
+			},
+			power: senderPower,
+		}
 	}
 	q.received[sender] = fromSender
 
 	candidate := chainPower{
 		chain:           value,
-		power:           q.powerTable.GetPower(sender),
+		power:           q.powerTable.Entries[sender].Power,
 		hasStrongQuorum: false,
 		hasWeakQuorum:   false,
 	}
