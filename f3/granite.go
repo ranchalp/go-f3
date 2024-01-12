@@ -320,6 +320,39 @@ func (i *instance) isJustified(msg *GMessage) bool {
 		if msg.Round == 0 || msg.Value.IsZero() {
 			return false
 		}
+
+		prevRound := msg.Round - 1
+		if msg.Evidence.Round != prevRound {
+			i.log("dropping CONVERGE %s with evidence from wrong round %d", msg, msg.Evidence.Round)
+			return false
+		}
+
+		if i.instanceID != msg.Evidence.Instance {
+			i.log("dropping CONVERGE %s with evidence from wrong instanceID %v", msg, msg.Evidence.Instance)
+			return false
+		}
+
+		if msg.Evidence.Step == PREPARE {
+			if msg.Value.Head().CID != msg.Evidence.Value.Head().CID {
+				i.log("dropping CONVERGE %s with PREPARE evidence for distinct value's head CID %v", msg, msg.Evidence.Value.Head().CID)
+				return false
+			}
+		} else if msg.Evidence.Step == COMMIT {
+			if msg.Evidence.Value.HeadCIDOrZero() != ZeroTipSetID() {
+				i.log("dropping CONVERGE %s with COMMIT evidence for non-zero value %v", msg, msg.Evidence.Value)
+				return false
+			}
+		} else {
+			i.log("dropping CONVERGE %s with evidence from wrong step %s", msg, msg.Evidence.Step)
+			return false
+		}
+
+		payload := SignaturePayload(i.instanceID, prevRound, msg.Evidence.Step, msg.Evidence.Value)
+		if !i.host.VerifyAggregate(payload, msg.Evidence.Signature, &msg.Evidence.Signers, i.powerTable.Lookup) {
+			i.log("dropping CONVERGE %s with invalid evidence signature", msg)
+			return false
+		}
+
 		return true
 	} else if msg.Step == PREPARE {
 		// PREPARE needs no justification by prior messages.
@@ -372,7 +405,18 @@ func (i *instance) beginConverge() {
 	i.phase = CONVERGE
 	ticket := i.vrf.MakeTicket(i.beacon, i.instanceID, i.round, i.participantID)
 	i.phaseTimeout = i.alarmAfterSynchrony(CONVERGE)
+	prevRoundState := i.roundState(i.round - 1)
+	if prevRoundState.committed.HasStrongQuorumAgreement(ZeroTipSetID()) {
+		getEvidence(ECChain{}, prevRoundState.committed)
+	}
 	i.broadcast(i.round, CONVERGE, i.proposal, ticket, AggEvidence{})
+}
+
+// FIXME As instructed I have attempted to keep quorumState as oblivious of singature aggregation as possible, but I think
+// there are clear benefits to coupling (namely more efficient storage and processing of signatures by quorumState)
+// this would be showcased in this auxiliary function especially, getEvidence.
+func getEvidence(value ECChain, q *quorumState) AggEvidence {
+	//TODO Continue, but discuss first
 }
 
 // Attempts to end the CONVERGE phase and begin PREPARE based on current state.
